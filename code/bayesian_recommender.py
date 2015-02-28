@@ -55,14 +55,14 @@ class Item(object):
 class User(object):
     """A user."""
 
-    def __init__(self, name, pa_id_ra, ne_id_sim):
+    def __init__(self, name, pa_id_ra):
         self.name = name
         # parents_id_rating table
         self.pa_id_ra = pa_id_ra
-        # neighbor_id_similarity
-        self.ne_id_sim = ne_id_sim
+        # neighbor_similarity
+        # self.ne_sim = ne_sim
         self.pa_size = pa_id_ra.size
-        self.ne_size = ne_id_sim.size
+        # self.ne_size = ne_sim.size
         # content-based probability given evidence
         self.cb_pev = np.zeros(6)
         self.cf_pev = np.zeros(6)
@@ -85,21 +85,21 @@ class User(object):
     def set_neighbor_pattern(self):
         rating_pattern = np.zeros((self.ne_size,5,5), dtype=int)
         for i in range(self.ne_size):
-            ne = self.ne_id_sim['neighbor'][i]
+            ne = self.ne_sim['neighbor'][i]
             same_parents_self = self.pa_id_ra['rating'][np.in1d(self.pa_id_ra['id'], ne.pa_id_ra['id'])]
             same_parents_neig = ne.pa_id_ra['rating'][np.in1d(ne.pa_id_ra['id'], self.pa_id_ra['id'])]
             for j in range(same_parents_self.size):
                 rating_pattern[i,same_parents_neig[j],same_parents_self[j]] += 1
         rating_pattern = (rating_pattern+1.0/5)/(np.sum(rating_pattern,axis=-1,keepdims=True)+1)
-        self.weights = self.rating_pattern*self.ne_id_sim['sim'][:,np.newaxis,np.newaxis]
+        self.weights = self.rating_pattern*self.ne_sim['sim'][:,np.newaxis,np.newaxis]
 
     def set_cf_prob_ev(self):
         weights = np.copy(self.weights)
-        w_r0 = np.copy(self.ne_id_sim['sim'])
+        w_r0 = np.copy(self.ne_sim['sim'])
         # propagate from neighbors to Acf
         for i in range(self.ne_size):
-            weights[i] *= self.ne_id_sim['neighbor'][i].cb_pev[1:][:,np.newaxis]
-            w_r0[i] *= self.ne_id_sim['neighbor'][i].cb_pev[0]
+            weights[i] *= self.ne_sim['neighbor'][i].cb_pev[1:][:,np.newaxis]
+            w_r0[i] *= self.ne_sim['neighbor'][i].cb_pev[0]
         # sum all the neighbors for ratings 1~5
         self.cf_pev[1:] = np.sum(np.sum(weights,axis=1),axis=0)
         self.cf_pev[0] = np.sum(w_r0)
@@ -134,7 +134,7 @@ class BayesianRecommender(object):
         self.total_features = self.item_features.shape[1]
         # self.total_items = self.user_item_rating.size
         self.total_items = self.info['f0'][1]
-
+        self.total_users = self.info['f0'][0]
 
     def create_features(self):
         # # count the times of rating of each item
@@ -152,10 +152,23 @@ class BayesianRecommender(object):
             self.features[i] = Feature(i,feature_counts[i],self.total_items)
 
     def create_items(self):
-        
+        self.items = np.empty(self.total_items,dtype='O')
+        for i in range(self.total_items):
+            parents = self.features[self.item_features[i]==1]
+            self.items[i] = Item(i,parents)
 
     def create_users(self):
-        pass
+        self.users = np.empty(self.total_users,dtype='O')
+        _, users_first_index, users_rating_counts = np.unique(self.user_item_rating[:,0], return_index=True, return_counts=True)
+        for i in range(self.total_users):
+            start = users_first_index[i]
+            end = start + users_rating_counts[i]
+            pa_ids = self.user_item_rating[start:end,1]
+            pa_id_ra = np.empty(users_rating_counts[i],dtype=[('parent','O'),('id','int'),('rating','int8')])
+            pa_id_ra['parent'] = self.items[pa_ids-1]
+            pa_id_ra['id'] = self.user_item_rating[start:end,1]
+            pa_id_ra['rating'] = self.user_item_rating[start:end,2]
+            self.users[i] = User(i,pa_id_ra)
 
     def inference(self, user, item):
         pass
