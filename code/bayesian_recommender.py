@@ -1,5 +1,4 @@
 import numpy as np
-import math
 
 class Feature(object):
     """The features of an item."""
@@ -11,7 +10,7 @@ class Feature(object):
         # prior probability
         self.p = (n+0.5)/(m+1)
         # inverted document frequency(idf)
-        self.idf = math.log(m*1.0/n+1)
+        self.idf = np.log(m*1.0/n+1)
         self.init_prob_ev()
 
     def init_prob_ev(self):
@@ -59,13 +58,15 @@ class User(object):
         self.name = name
         # parents_id_rating table
         self.pa_id_ra = pa_id_ra
-        # neighbor_similarity
-        # self.ne_sim = ne_sim
         self.pa_size = pa_id_ra.size
-        # self.ne_size = ne_sim.size
         # content-based probability given evidence
         self.cb_pev = np.zeros(6)
         self.cf_pev = np.zeros(6)
+
+    def add_neighbors(self, ne_sim):
+        # neighbor_similarity
+        self.ne_sim = ne_sim
+        self.ne_size = ne_sim.size
 
     # propagate from items to user
     def set_cb_prob_ev(self, predict_item):
@@ -126,6 +127,7 @@ class BayesianRecommender(object):
         self.create_features()
         self.create_items()
         self.create_users()
+        self.create_neighbors(10)
 
     def read_data(self):
         self.item_features = np.loadtxt(self.item_file,delimiter='|',dtype='int8', usecols=range(5,24))
@@ -136,13 +138,7 @@ class BayesianRecommender(object):
         self.total_items = self.info['f0'][1]
         self.total_users = self.info['f0'][0]
 
-    def create_features(self):
-        # # count the times of rating of each item
-        # items_id, item_rated_counts = np.unique(self.user_item_rating[:,1],return_counts=True)
-        # print items_id, item_rated_counts
-        # feature_counts = np.copy(self.item_features)[items_id-1]*item_rated_counts[:,np.newaxis]
-        # feature_counts = np.sum(feature_counts,axis=0)
- 
+    def create_features(self): 
         # compute the number of each feature that has been used to describe an item
         feature_counts = np.sum(self.item_features,axis=0)
         # print feature_counts
@@ -169,6 +165,52 @@ class BayesianRecommender(object):
             pa_id_ra['id'] = self.user_item_rating[start:end,1]
             pa_id_ra['rating'] = self.user_item_rating[start:end,2]
             self.users[i] = User(i,pa_id_ra)
+
+    def create_neighbors(self, k):
+        self.top_n_ne = k
+        sim_matirx = np.zeros((self.total_users,self.total_users))-2
+        for i in range(self.total_users):
+            # if i > 1:
+            #     break
+            for j in range(i+1,self.total_users):
+                ui_pa = self.users[i].pa_id_ra
+                uj_pa = self.users[j].pa_id_ra
+                ui_ratings = ui_pa['rating'][np.in1d(ui_pa['id'],uj_pa['id'])]
+                # ui = ui_pa['rating'][np.in1d(ui_pa['id'],uj_pa['id'])] - np.mean(ui_pa['rating'])
+                # print
+                # print i,j
+                # ui_items = ui_pa['id'][np.in1d(ui_pa['id'],uj_pa['id'])]
+
+                if ui_ratings.size:
+                    uj_ratings = uj_pa['rating'][np.in1d(uj_pa['id'],ui_pa['id'])]
+                    # uj = uj_pa['rating'][np.in1d(uj_pa['id'],ui_pa['id'])] - np.mean(uj_pa['rating'])
+                    ui_aver_ra = np.mean(ui_pa['rating'])
+                    uj_aver_ra = np.mean(uj_pa['rating'])
+                    # Peason correlation coefficient
+                    ui = ui_ratings - ui_aver_ra
+                    uj = uj_ratings - uj_aver_ra
+                    sim_ij = np.sum(ui*uj)/np.sqrt(np.sum(np.square(ui))*np.sum(np.square(uj)))*ui.size/ui_pa.size
+                    if np.isnan(sim_ij):
+                        sim_ij = 0
+                    # if j == 415:
+                        # print ui_items
+                        # print ui_ratings,uj_ratings
+                        # # print ui_aver_ra,uj_aver_ra
+                        # # print ui, uj
+                        # print sim_ij
+                        # print 
+                else:
+                    sim_ij = 0
+                sim_matirx[i][j] = abs(sim_ij)
+        sim_matirx = sim_matirx + np.triu(sim_matirx,1).T
+        top_ne_index = np.argsort(sim_matirx,axis=1)[:,-k:]
+
+        for i in range(self.total_users):
+            ne_sim = np.empty(k,dtype=[('neighbor','O'),('sim','f')])
+            ne_sim['neighbor'] = self.users[np.sort(top_ne_index[i])]
+            ne_sim['sim'] = sim_matirx[i][top_ne_index[i]]
+            self.users[i].add_neighbors(ne_sim)
+
 
     def inference(self, user, item):
         pass
@@ -203,7 +245,7 @@ if __name__ == '__main__':
     # r = read_rating('../data/ml-100k/u1.base')
     # info = read_info('../data/ml-100k/u.info')
     files = ['../data/ml-100k/u.item','../data/ml-100k/u1.base','../data/ml-100k/u.info']
-    result = feature_test(files)
+    re = feature_test(files)
 
 
 
