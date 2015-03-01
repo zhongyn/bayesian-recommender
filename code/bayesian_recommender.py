@@ -39,12 +39,13 @@ class Item(object):
         # self.relevance = False
 
     # set p(feature|item as evidence), propagate to features
-    def prob_f_iev(self):
+    def set_prob_f_iev(self):
         for i in range(self.pa_size):
             self.parents[i].set_prob_ev(self.weights[i])
 
     # propagate from features to item
     def set_prob_ev(self):
+        self.pev = 0
         for i in range(self.pa_size):
             self.pev += self.parents[i].pev*self.weights[i]
             # if self.parents[i].relevance:
@@ -67,6 +68,7 @@ class User(object):
         # neighbor_similarity
         self.ne_sim = ne_sim
         self.ne_size = ne_sim.size
+        self.set_neighbor_pattern()
 
     # propagate from items to user
     def set_cb_prob_ev(self, predict_item):
@@ -76,7 +78,7 @@ class User(object):
                 self.cb_pev[0] += (1-pa.pev)
                 r = self.pa_id_ra[i]['rating']
                 self.cb_pev[r] += pa.pev
-            self.cb_pev = self.pev/np.sum(self.pev)
+            self.cb_pev = self.cb_pev/np.sum(self.cb_pev)
         else:
             r = self.pa_id_ra['rating'][np.where(self.pa_id_ra['id']==predict_item)]
             self.cb_pev[r] = 1
@@ -90,9 +92,9 @@ class User(object):
             same_parents_self = self.pa_id_ra['rating'][np.in1d(self.pa_id_ra['id'], ne.pa_id_ra['id'])]
             same_parents_neig = ne.pa_id_ra['rating'][np.in1d(ne.pa_id_ra['id'], self.pa_id_ra['id'])]
             for j in range(same_parents_self.size):
-                rating_pattern[i,same_parents_neig[j],same_parents_self[j]] += 1
+                rating_pattern[i,same_parents_neig[j]-1,same_parents_self[j]-1] += 1
         rating_pattern = (rating_pattern+1.0/5)/(np.sum(rating_pattern,axis=-1,keepdims=True)+1)
-        self.weights = self.rating_pattern*self.ne_sim['sim'][:,np.newaxis,np.newaxis]
+        self.weights = rating_pattern*self.ne_sim['sim'][:,np.newaxis,np.newaxis]
 
     def set_cf_prob_ev(self):
         weights = np.copy(self.weights)
@@ -114,27 +116,25 @@ class User(object):
 class BayesianRecommender(object):
     """A bayesian network based hybrid recommender system."""
 
-    def __init__(self, item_file, rating_file, info_file):
+    def __init__(self, item_file, rating_file, info_file, top_k_ne):
         self.rating_file = rating_file
         self.item_file = item_file
         self.info_file = info_file
+        self.top_k_ne = top_k_ne
         self.init_nodes()
-
-
 
     def init_nodes(self):
         self.read_data()
         self.create_features()
         self.create_items()
         self.create_users()
-        self.create_neighbors(10)
+        self.create_neighbors()
 
     def read_data(self):
         self.item_features = np.loadtxt(self.item_file,delimiter='|',dtype='int8', usecols=range(5,24))
         self.user_item_rating = np.loadtxt(self.rating_file,dtype='int16',usecols=range(3))
         self.info = np.loadtxt(self.info_file, dtype=('int,S10'))
         self.total_features = self.item_features.shape[1]
-        # self.total_items = self.user_item_rating.size
         self.total_items = self.info['f0'][1]
         self.total_users = self.info['f0'][0]
 
@@ -166,21 +166,16 @@ class BayesianRecommender(object):
             pa_id_ra['rating'] = self.user_item_rating[start:end,2]
             self.users[i] = User(i,pa_id_ra)
 
-    def create_neighbors(self, k):
-        self.top_n_ne = k
+    def create_neighbors(self):
         sim_matirx = np.zeros((self.total_users,self.total_users))-2
         for i in range(self.total_users):
-            # if i > 1:
+            # if i > 0:
             #     break
+            print i
             for j in range(i+1,self.total_users):
                 ui_pa = self.users[i].pa_id_ra
                 uj_pa = self.users[j].pa_id_ra
                 ui_ratings = ui_pa['rating'][np.in1d(ui_pa['id'],uj_pa['id'])]
-                # ui = ui_pa['rating'][np.in1d(ui_pa['id'],uj_pa['id'])] - np.mean(ui_pa['rating'])
-                # print
-                # print i,j
-                # ui_items = ui_pa['id'][np.in1d(ui_pa['id'],uj_pa['id'])]
-
                 if ui_ratings.size:
                     uj_ratings = uj_pa['rating'][np.in1d(uj_pa['id'],ui_pa['id'])]
                     # uj = uj_pa['rating'][np.in1d(uj_pa['id'],ui_pa['id'])] - np.mean(uj_pa['rating'])
@@ -190,35 +185,39 @@ class BayesianRecommender(object):
                     ui = ui_ratings - ui_aver_ra
                     uj = uj_ratings - uj_aver_ra
                     sim_ij = np.sum(ui*uj)/np.sqrt(np.sum(np.square(ui))*np.sum(np.square(uj)))*ui.size/ui_pa.size
-                    if np.isnan(sim_ij):
-                        sim_ij = 0
-                    # if j == 415:
-                        # print ui_items
-                        # print ui_ratings,uj_ratings
-                        # # print ui_aver_ra,uj_aver_ra
-                        # # print ui, uj
-                        # print sim_ij
-                        # print 
                 else:
+                    sim_ij = 0
+                if np.isnan(sim_ij):
                     sim_ij = 0
                 sim_matirx[i][j] = abs(sim_ij)
         sim_matirx = sim_matirx + np.triu(sim_matirx,1).T
-        top_ne_index = np.argsort(sim_matirx,axis=1)[:,-k:]
+        top_ne_index = np.argsort(sim_matirx,axis=1)[:,-self.top_k_ne:]
 
         for i in range(self.total_users):
-            ne_sim = np.empty(k,dtype=[('neighbor','O'),('sim','f')])
+            ne_sim = np.empty(self.top_k_ne,dtype=[('neighbor','O'),('sim','f')])
             ne_sim['neighbor'] = self.users[np.sort(top_ne_index[i])]
             ne_sim['sim'] = sim_matirx[i][top_ne_index[i]]
             self.users[i].add_neighbors(ne_sim)
 
 
-    def inference(self, user, item):
-        pass
+    def inference(self, user_id, item_id):
+        user = self.users[user_id]
+        item = self.items[item_id]
         # set all features probs
+        for f in self.features:
+            f.init_prob_ev()
+        item.set_prob_f_iev()
         # set all items probs
+        for i in self.items:
+            i.set_prob_ev()
         # set all users cb probs
+        for u in self.users:
+            u.set_cb_prob_ev(item_id)
         # set neighbors' cf prob
+        user.set_cf_prob_ev()
         # set final cb-cf prob
+
+        return user
 
 
 
@@ -244,8 +243,10 @@ if __name__ == '__main__':
     # f = read_item_features('../data/ml-100k/u.item')
     # r = read_rating('../data/ml-100k/u1.base')
     # info = read_info('../data/ml-100k/u.info')
-    files = ['../data/ml-100k/u.item','../data/ml-100k/u1.base','../data/ml-100k/u.info']
+    files = ['../data/ml-100k/u.item','../data/ml-100k/u1.base','../data/ml-100k/u.info',10]
     re = feature_test(files)
+    print 'finish create model, start inference'
+    u = re.inference(1,6)
 
 
 
