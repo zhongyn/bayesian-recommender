@@ -63,6 +63,7 @@ class User(object):
         # content-based probability given evidence
         self.cb_pev = np.zeros(6)
         self.cf_pev = np.zeros(6)
+        self.hb_pev = None
 
     def add_neighbors(self, ne_sim):
         # neighbor_similarity
@@ -81,7 +82,12 @@ class User(object):
             self.cb_pev = self.cb_pev/np.sum(self.cb_pev)
         else:
             r = self.pa_id_ra['rating'][np.where(self.pa_id_ra['id']==predict_item)]
-            self.cb_pev[r] = 1
+            for i in range(6):
+                if i != r:
+                    # print i
+                    self.cb_pev[i] = 0
+                else:
+                    self.cb_pev[i] = 1
 
     # compute the probability of A rating with a value s when Ui rated with t
     # P(A=s|Ui=t)
@@ -109,17 +115,29 @@ class User(object):
         self.cf_pev = self.cf_pev/np.sum(self.cf_pev)
 
     def set_hybrid_prob_ev(self):
-        pass
-
+        # very very compact computation for hybrid probability
+        alpha = self.cf_pev[0]
+        matrix = self.cb_pev*self.cf_pev.reshape((6,1))
+        # print matrix
+        # print 'cb',self.cb_pev
+        # print 'cf',self.cf_pev
+        cb_sum = np.sum(matrix,axis=-1) - matrix.diagonal()
+        # print cb_sum
+        cf_sum = np.sum(matrix,axis=0) - matrix.diagonal()
+        # print cf_sum
+        self.hb_pev = matrix.diagonal() + cb_sum*alpha + cf_sum*(1-alpha)
+        self.hb_pev = self.hb_pev/np.sum(self.hb_pev)
+        # print self.hb_pev
 
 
 class BayesianRecommender(object):
     """A bayesian network based hybrid recommender system."""
 
-    def __init__(self, item_file, rating_file, info_file, top_k_ne):
+    def __init__(self, item_file, rating_file, info_file, test_file, top_k_ne):
         self.rating_file = rating_file
         self.item_file = item_file
         self.info_file = info_file
+        self.test_file = test_file
         self.top_k_ne = top_k_ne
         self.init_nodes()
 
@@ -137,6 +155,8 @@ class BayesianRecommender(object):
         self.total_features = self.item_features.shape[1]
         self.total_items = self.info['f0'][1]
         self.total_users = self.info['f0'][0]
+        self.test_data = np.loadtxt(self.test_file,dtype='int16',usecols=range(3))
+        self.test_size = self.test_data.shape[0]
 
     def create_features(self): 
         # compute the number of each feature that has been used to describe an item
@@ -162,16 +182,16 @@ class BayesianRecommender(object):
             pa_ids = self.user_item_rating[start:end,1]
             pa_id_ra = np.empty(users_rating_counts[i],dtype=[('parent','O'),('id','int'),('rating','int8')])
             pa_id_ra['parent'] = self.items[pa_ids-1]
-            pa_id_ra['id'] = self.user_item_rating[start:end,1]
+            pa_id_ra['id'] = self.user_item_rating[start:end,1]-1
             pa_id_ra['rating'] = self.user_item_rating[start:end,2]
             self.users[i] = User(i,pa_id_ra)
 
     def create_neighbors(self):
         sim_matirx = np.zeros((self.total_users,self.total_users))-2
         for i in range(self.total_users):
-            # if i > 0:
+            # if i > 3:
             #     break
-            print i
+            # print i
             for j in range(i+1,self.total_users):
                 ui_pa = self.users[i].pa_id_ra
                 uj_pa = self.users[j].pa_id_ra
@@ -216,8 +236,26 @@ class BayesianRecommender(object):
         # set neighbors' cf prob
         user.set_cf_prob_ev()
         # set final cb-cf prob
+        user.set_hybrid_prob_ev()
 
-        return user
+        # return user
+
+    def testing(self):
+        self.result = np.zeros(self.test_size)
+        for i in range(self.test_size):
+        # for i in range(1):
+            if i%1000 == 0:
+                print i
+            userid = self.test_data[i,0]-1
+            itemid = self.test_data[i,1]-1
+            self.inference(userid, itemid)
+            self.result[i] = np.argmax(self.users[userid].hb_pev[1:]) + 1
+        self.mae = np.sum(np.fabs(self.result - self.test_data[:,2]))*1.0/self.test_size
+        self.error = np.count_nonzero(self.result - self.test_data[:,2])*1.0/self.test_size
+        # print self.result[:10]
+        # print self.test_data[:10,2]
+        # print self.mae
+        # print self.error
 
 
 
@@ -234,38 +272,68 @@ def read_info(info_file):
     info = np.loadtxt(info_file, dtype=('int,a10'))
     return info
 
-def feature_test(files):
+def test(files):
     br = BayesianRecommender(*files)
     return br
 
+class CrossValidation(object):
+    """5-fold cross validation."""
+
+    def __init__(self):
+        self.folds = 5
+        self.top_k_ne = [10,20,30,50]
+        self.mae = np.zeros((5,4))
+        self.error = np.zeros((5,4))
+        self.path = '../data/ml-100k/u'
+
+    def run(self):
+        for i in range(self.folds):
+            k = str(i+1)
+            print '\nfold:',k
+            for idx,j in enumerate(self.top_k_ne):
+                print '\ntop_k_ne:',j
+                files =  [self.path+'.item', self.path+k+'.base', self.path+'.info', self.path+k+'.test',j]
+                br = BayesianRecommender(*files)
+                br.testing()
+                print 'mae:',br.mae
+                print 'error:',br.error
+                self.mae[i,idx] = br.mae
+                self.error[i,idx] = br.error
+        self.aver_mae = np.mean(self.mae,axis=0)
+        self.aver_error = np.mean(self.error,axis=0)
+        print
+        print 'mae:\n',self.mae, 
+        print 'error\n',self.error
+        print self.aver_mae, self.aver_error
+
+
+def cross_validation():
+    folds = 5
+    top_k_ne = [10,20,30,50]
+    mae = np.zeros((5,4))
+    error = np.zeros((5,4))
+    for i in range(folds):
+        for j in top_k_ne:
+            files =  ['../data/ml-100k/u.item','../data/ml-100k/u'+str(i)+'.base','../data/ml-100k/u.info','../data/ml-100k/u'+str(i)+'.test',j]
+            br = BayesianRecommender(*files)
+            br.testing()
+            mae[i,j] = br.mae
+            error[i,j] = br.error
+    self.aver_mae = np.mean(mae,axis=0)
+    aver_error = np.mean(error,axis=0)
+    print mae
+    print error
+    print aver_mae, aver_error
+    return 
 
 if __name__ == '__main__':
-    # f = read_item_features('../data/ml-100k/u.item')
-    # r = read_rating('../data/ml-100k/u1.base')
-    # info = read_info('../data/ml-100k/u.info')
-    files = ['../data/ml-100k/u.item','../data/ml-100k/u1.base','../data/ml-100k/u.info',10]
-    re = feature_test(files)
-    print 'finish create model, start inference'
-    u = re.inference(1,6)
 
+    # files = ['../data/ml-100k/u.item','../data/ml-100k/u1.base','../data/ml-100k/u.info','../data/ml-100k/u1.test',10]
+    # re = test(files) 
+    # print 'finish create model, start inference'
+    # u = re.inference(1,6)
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    test = CrossValidation()
+    result = test.run()
 
 
