@@ -189,8 +189,8 @@ class BayesianRecommender(object):
     def create_neighbors(self):
         sim_matirx = np.zeros((self.total_users,self.total_users))-2
         for i in range(self.total_users):
-            # if i > 3:
-            #     break
+            if i > 1:
+                break
             # print i
             for j in range(i+1,self.total_users):
                 ui_pa = self.users[i].pa_id_ra
@@ -242,23 +242,25 @@ class BayesianRecommender(object):
 
     def testing(self):
         self.result = np.zeros(self.test_size)
-        for i in range(self.test_size):
-        # for i in range(1):
+        self.result_cb = np.zeros(self.test_size)
+        # for i in range(self.test_size):
+        for i in range(1):
             if i%1000 == 0:
                 print i
             userid = self.test_data[i,0]-1
             itemid = self.test_data[i,1]-1
             self.inference(userid, itemid)
             self.result[i] = np.argmax(self.users[userid].hb_pev[1:]) + 1
+            self.result_cb[i] = np.argmax(self.users[userid].cb_pev[1:]) + 1
         self.mae = np.sum(np.fabs(self.result - self.test_data[:,2]))*1.0/self.test_size
         self.error = np.count_nonzero(self.result - self.test_data[:,2])*1.0/self.test_size
+        self.cb_mae = np.sum(np.fabs(self.result_cb - self.test_data[:,2]))*1.0/self.test_size
+        self.cb_error = np.count_nonzero(self.result_cb - self.test_data[:,2])*1.0/self.test_size
+
         # print self.result[:10]
         # print self.test_data[:10,2]
         # print self.mae
         # print self.error
-
-
-
 
 def read_item_features(item_file):
     item_f = np.loadtxt(item_file,delimiter='|',dtype='int8', usecols=range(5,24))
@@ -284,6 +286,8 @@ class CrossValidation(object):
         self.top_k_ne = [10,20,30,50]
         self.mae = np.zeros((5,4))
         self.error = np.zeros((5,4))
+        self.cb_mae = np.zeros((5,4))
+        self.cb_error = np.zeros((5,4))
         self.path = '../data/ml-100k/u'
 
     def run(self):
@@ -297,14 +301,23 @@ class CrossValidation(object):
                 br.testing()
                 print 'mae:',br.mae
                 print 'error:',br.error
+                print 'cb_mae:',br.cb_mae
+                print 'cb_error:',br.cb_error
                 self.mae[i,idx] = br.mae
                 self.error[i,idx] = br.error
+                self.cb_mae[i,idx] = br.cb_mae
+                self.cb_error[i,idx] = br.cb_error
         self.aver_mae = np.mean(self.mae,axis=0)
         self.aver_error = np.mean(self.error,axis=0)
+        self.cb_aver_mae = np.mean(self.cb_mae,axis=0)
+        self.cb_aver_error = np.mean(self.cb_error,axis=0)
         print
-        print 'mae:\n',self.mae, 
-        print 'error\n',self.error
+        print '\nmae:\n',self.mae, 
+        print '\nerror\n',self.error
+        print '\ncb_mae:\n',self.cb_mae, 
+        print '\ncb_error\n',self.cb_error
         print self.aver_mae, self.aver_error
+        print self.cb_aver_mae, self.cb_aver_error
 
 
 def cross_validation():
