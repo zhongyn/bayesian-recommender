@@ -189,9 +189,9 @@ class BayesianRecommender(object):
     def create_neighbors(self):
         sim_matirx = np.zeros((self.total_users,self.total_users))-2
         for i in range(self.total_users):
-            if i > 1:
-                break
-            # print i
+            # if i > 1:
+            #     break
+            # # print i
             for j in range(i+1,self.total_users):
                 ui_pa = self.users[i].pa_id_ra
                 uj_pa = self.users[j].pa_id_ra
@@ -243,8 +243,8 @@ class BayesianRecommender(object):
     def testing(self):
         self.result = np.zeros(self.test_size)
         self.result_cb = np.zeros(self.test_size)
-        # for i in range(self.test_size):
-        for i in range(1):
+        for i in range(self.test_size):
+        # for i in range(1):
             if i%1000 == 0:
                 print i
             userid = self.test_data[i,0]-1
