@@ -114,9 +114,9 @@ class User(object):
         self.cf_pev[0] = np.sum(w_r0)
         self.cf_pev = self.cf_pev/np.sum(self.cf_pev)
 
-    def set_hybrid_prob_ev(self):
+    def set_hybrid_prob_ev(self,alpha):
         # very very compact computation for hybrid probability
-        alpha = self.cf_pev[0]
+        # alpha = self.cf_pev[0]
         matrix = self.cb_pev*self.cf_pev.reshape((6,1))
         # print matrix
         # print 'cb',self.cb_pev
@@ -129,6 +129,22 @@ class User(object):
         self.hb_pev = self.hb_pev/np.sum(self.hb_pev)
         # print self.hb_pev
 
+class Demographic(object):
+    """Demographic info: age, gender, occupation."""
+
+    def __init__(self, name,n,m):
+        self.name = name
+        # n: the num of this demographic has been used to decribe an user
+        # m: the total num of user
+        # prior probability
+        self.p = (n+0.5)/(m+1)
+        # inverted document frequency(idf)
+        self.idf = np.log(m*1.0/n+1)
+        self.init_prob_ev()
+
+    def init_prob_ev(self):
+        self.pev = self.p
+        # self.relevance = False
 
 class BayesianRecommender(object):
     """A bayesian network based hybrid recommender system."""
@@ -220,7 +236,7 @@ class BayesianRecommender(object):
             self.users[i].add_neighbors(ne_sim)
 
 
-    def inference(self, user_id, item_id):
+    def inference(self, user_id, item_id, alp):
         user = self.users[user_id]
         item = self.items[item_id]
         # set all features probs
@@ -236,11 +252,11 @@ class BayesianRecommender(object):
         # set neighbors' cf prob
         user.set_cf_prob_ev()
         # set final cb-cf prob
-        user.set_hybrid_prob_ev()
+        user.set_hybrid_prob_ev(alp)
 
         # return user
 
-    def testing(self):
+    def testing(self,alp):
         self.result = np.zeros(self.test_size)
         self.result_cb = np.zeros(self.test_size)
         for i in range(self.test_size):
@@ -249,7 +265,7 @@ class BayesianRecommender(object):
                 print i
             userid = self.test_data[i,0]-1
             itemid = self.test_data[i,1]-1
-            self.inference(userid, itemid)
+            self.inference(userid, itemid, alp)
             self.result[i] = np.argmax(self.users[userid].hb_pev[1:]) + 1
             self.result_cb[i] = np.argmax(self.users[userid].cb_pev[1:]) + 1
         self.mae = np.sum(np.fabs(self.result - self.test_data[:,2]))*1.0/self.test_size
@@ -320,33 +336,34 @@ class CrossValidation(object):
         print self.cb_aver_mae, self.cb_aver_error
 
 
-def cross_validation():
-    folds = 5
-    top_k_ne = [10,20,30,50]
-    mae = np.zeros((5,4))
-    error = np.zeros((5,4))
-    for i in range(folds):
-        for j in top_k_ne:
-            files =  ['../data/ml-100k/u.item','../data/ml-100k/u'+str(i)+'.base','../data/ml-100k/u.info','../data/ml-100k/u'+str(i)+'.test',j]
-            br = BayesianRecommender(*files)
-            br.testing()
-            mae[i,j] = br.mae
-            error[i,j] = br.error
-    self.aver_mae = np.mean(mae,axis=0)
-    aver_error = np.mean(error,axis=0)
-    print mae
-    print error
-    print aver_mae, aver_error
-    return 
+# def cross_validation():
+#     folds = 5
+#     top_k_ne = [10,20,30,50]
+#     mae = np.zeros((5,4))
+#     error = np.zeros((5,4))
+#     for i in range(folds):
+#         for j in top_k_ne:
+#             files =  ['../data/ml-100k/u.item','../data/ml-100k/u'+str(i)+'.base','../data/ml-100k/u.info','../data/ml-100k/u'+str(i)+'.test',j]
+#             br = BayesianRecommender(*files)
+#             br.testing()
+#             mae[i,j] = br.mae
+#             error[i,j] = br.error
+#     self.aver_mae = np.mean(mae,axis=0)
+#     aver_error = np.mean(error,axis=0)
+#     print mae
+#     print error
+#     print aver_mae, aver_error
+#     return 
 
 if __name__ == '__main__':
 
-    # files = ['../data/ml-100k/u.item','../data/ml-100k/u1.base','../data/ml-100k/u.info','../data/ml-100k/u1.test',10]
-    # re = test(files) 
-    # print 'finish create model, start inference'
+    files = ['../data/ml-100k/u.item','../data/ml-100k/u1.base','../data/ml-100k/u.info','../data/ml-100k/u1.test',10]
+    re = test(files) 
+    print 'finish create model, start inference'
+    re.testing(0.3)
     # u = re.inference(1,6)
 
-    test = CrossValidation()
-    result = test.run()
+    # test = CrossValidation()
+    # result = test.run()
 
 
