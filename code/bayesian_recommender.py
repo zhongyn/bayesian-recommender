@@ -55,7 +55,7 @@ class Item(object):
 class User(object):
     """A user."""
 
-    def __init__(self, name, pa_id_ra):
+    def __init__(self, name, pa_id_ra, demo_pa):
         self.name = name
         # parents_id_rating table
         self.pa_id_ra = pa_id_ra
@@ -64,6 +64,7 @@ class User(object):
         self.cb_pev = np.zeros(6)
         self.cf_pev = np.zeros(6)
         self.hb_pev = None
+        self.demo_pa = demo_pa
 
     def add_neighbors(self, ne_sim):
         # neighbor_similarity
@@ -79,6 +80,9 @@ class User(object):
                 self.cb_pev[0] += (1-pa.pev)
                 r = self.pa_id_ra[i]['rating']
                 self.cb_pev[r] += pa.pev
+            for j in range(self.demo_pa.size):
+                self.cb_pev[r] += self.demo_pa[j].p
+                
             self.cb_pev = self.cb_pev/np.sum(self.cb_pev)
         else:
             r = self.pa_id_ra['rating'][np.where(self.pa_id_ra['id']==predict_item)]
@@ -149,20 +153,23 @@ class Demographic(object):
 class BayesianRecommender(object):
     """A bayesian network based hybrid recommender system."""
 
-    def __init__(self, item_file, rating_file, info_file, test_file, top_k_ne):
+    def __init__(self, item_file, rating_file, info_file, test_file, demo_file, job_file, top_k_ne):
         self.rating_file = rating_file
         self.item_file = item_file
         self.info_file = info_file
         self.test_file = test_file
+        self.demo_file = demo_file
+        self.job_file = job_file
         self.top_k_ne = top_k_ne
         self.init_nodes()
 
     def init_nodes(self):
         self.read_data()
         self.create_features()
+        self.create_demo()
         self.create_items()
         self.create_users()
-        self.create_neighbors()
+        # self.create_neighbors()
 
     def read_data(self):
         self.item_features = np.loadtxt(self.item_file,delimiter='|',dtype='int8', usecols=range(5,24))
@@ -173,6 +180,56 @@ class BayesianRecommender(object):
         self.total_users = self.info['f0'][0]
         self.test_data = np.loadtxt(self.test_file,dtype='int16',usecols=range(3))
         self.test_size = self.test_data.shape[0]
+        self.user_demo = np.loadtxt(self.demo_file,delimiter='|',dtype=[('user','int16'),('age','int8'),('gender','S1'),('job','S20')],usecols=range(4))
+        self.jobs = np.loadtxt(self.job_file,dtype='S')
+
+
+    def create_demo(self):
+        # preproecss the demographics data
+        # age = [18,25,35,45,50,56,100]
+        user_age = np.zeros(self.total_users)
+        for j,i in enumerate(self.user_demo['age']):
+            if i<18:
+                user_age[j] = 0
+            elif i<25:
+                user_age[j] = 1
+            elif i<35:
+                user_age[j] = 2
+            elif i<45:
+                user_age[j] = 3
+            elif i<56:
+                user_age[j] = 4
+            else:
+                user_age[j] = 5
+
+        user_gender = np.zeros(self.total_users)
+        user_gender[self.user_demo['gender']=='M'] = 6
+        user_gender[self.user_demo['gender']=='F'] = 7
+
+        user_job = np.zeros(self.total_users)
+        for i in range(self.jobs.size):
+            user_job[self.user_demo['job']==self.jobs[i]] = i+8
+
+        self.demo = np.empty(self.total_users,dtype=[('age','int8'),('gender','int8'),('job','int8')])
+        self.demo['age'] = user_age
+        self.demo['gender'] = user_gender
+        self.demo['job'] = user_job
+
+        # create demo nodes
+        self.demo_size = 8+self.jobs.size
+        self.demographics = np.empty(self.demo_size,dtype='O')
+        _, age_counts = np.unique(self.demo['age'], return_counts=True)
+        _, gender_counts = np.unique(self.demo['gender'], return_counts=True)
+        _, job_counts = np.unique(self.demo['job'], return_counts=True)
+
+        for i in range(self.demo_size):
+            if i < 6:
+                self.demographics[i] = Demographic(i,age_counts[i],self.total_users)
+            elif i<8:
+                self.demographics[i] = Demographic(i,gender_counts[i-6],self.total_users)
+            else:
+                self.demographics[i] = Demographic(i,job_counts[i-8],self.total_users)
+
 
     def create_features(self): 
         # compute the number of each feature that has been used to describe an item
@@ -200,7 +257,8 @@ class BayesianRecommender(object):
             pa_id_ra['parent'] = self.items[pa_ids-1]
             pa_id_ra['id'] = self.user_item_rating[start:end,1]-1
             pa_id_ra['rating'] = self.user_item_rating[start:end,2]
-            self.users[i] = User(i,pa_id_ra)
+            demo_idx = [self.demo[i][j] for j in range(3)]
+            self.users[i] = User(i,pa_id_ra,self.demographics[demo_idx])
 
     def create_neighbors(self):
         sim_matirx = np.zeros((self.total_users,self.total_users))-2
@@ -357,10 +415,14 @@ class CrossValidation(object):
 
 if __name__ == '__main__':
 
-    files = ['../data/ml-100k/u.item','../data/ml-100k/u1.base','../data/ml-100k/u.info','../data/ml-100k/u1.test',10]
+    files = ['../data/ml-100k/u.item','../data/ml-100k/u1.base','../data/ml-100k/u.info','../data/ml-100k/u1.test','../data/ml-100k/u.user','../data/ml-100k/u.occupation',10]
     re = test(files) 
     print 'finish create model, start inference'
-    re.testing(0.3)
+    # re.read_data()
+    # re.create_demo()
+    # print re.user_demo
+    # print re.demo[:20]
+    # re.testing(0.3)
     # u = re.inference(1,6)
 
     # test = CrossValidation()
