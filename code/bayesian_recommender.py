@@ -82,7 +82,6 @@ class User(object):
                 self.cb_pev[r] += pa.pev
             for j in range(self.demo_pa.size):
                 self.cb_pev[r] += self.demo_pa[j].p
-                
             self.cb_pev = self.cb_pev/np.sum(self.cb_pev)
         else:
             r = self.pa_id_ra['rating'][np.where(self.pa_id_ra['id']==predict_item)]
@@ -118,9 +117,9 @@ class User(object):
         self.cf_pev[0] = np.sum(w_r0)
         self.cf_pev = self.cf_pev/np.sum(self.cf_pev)
 
-    def set_hybrid_prob_ev(self,alpha):
+    def set_hybrid_prob_ev(self):
         # very very compact computation for hybrid probability
-        # alpha = self.cf_pev[0]
+        alpha = self.cf_pev[0]
         matrix = self.cb_pev*self.cf_pev.reshape((6,1))
         # print matrix
         # print 'cb',self.cb_pev
@@ -263,8 +262,8 @@ class BayesianRecommender(object):
     def create_neighbors(self):
         sim_matirx = np.zeros((self.total_users,self.total_users))-2
         for i in range(self.total_users):
-            # if i > 1:
-            #     break
+            if i > 1:
+                break
             # # print i
             for j in range(i+1,self.total_users):
                 ui_pa = self.users[i].pa_id_ra
@@ -294,7 +293,7 @@ class BayesianRecommender(object):
             self.users[i].add_neighbors(ne_sim)
 
 
-    def inference(self, user_id, item_id, alp):
+    def inference(self, user_id, item_id):
         user = self.users[user_id]
         item = self.items[item_id]
         # set all features probs
@@ -310,11 +309,11 @@ class BayesianRecommender(object):
         # set neighbors' cf prob
         user.set_cf_prob_ev()
         # set final cb-cf prob
-        user.set_hybrid_prob_ev(alp)
+        user.set_hybrid_prob_ev()
 
         # return user
 
-    def testing(self,alp):
+    def testing(self):
         self.result = np.zeros(self.test_size)
         self.result_cb = np.zeros(self.test_size)
         for i in range(self.test_size):
@@ -323,7 +322,7 @@ class BayesianRecommender(object):
                 print i
             userid = self.test_data[i,0]-1
             itemid = self.test_data[i,1]-1
-            self.inference(userid, itemid, alp)
+            self.inference(userid, itemid)
             self.result[i] = np.argmax(self.users[userid].hb_pev[1:]) + 1
             self.result_cb[i] = np.argmax(self.users[userid].cb_pev[1:]) + 1
         self.mae = np.sum(np.fabs(self.result - self.test_data[:,2]))*1.0/self.test_size
@@ -423,7 +422,7 @@ if __name__ == '__main__':
     # print re.user_demo
     # print re.demo[:20]
     # re.testing(0.3)
-    # u = re.inference(1,6)
+    u = re.inference(1,6)
 
     # test = CrossValidation()
     # result = test.run()
