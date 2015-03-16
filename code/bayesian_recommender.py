@@ -168,7 +168,7 @@ class BayesianRecommender(object):
         self.create_demo()
         self.create_items()
         self.create_users()
-        # self.create_neighbors()
+        self.create_neighbors()
 
     def read_data(self):
         self.item_features = np.loadtxt(self.item_file,delimiter='|',dtype='int8', usecols=range(5,24))
@@ -262,8 +262,8 @@ class BayesianRecommender(object):
     def create_neighbors(self):
         sim_matirx = np.zeros((self.total_users,self.total_users))-2
         for i in range(self.total_users):
-            if i > 1:
-                break
+            # if i > 1:
+            #     break
             # # print i
             for j in range(i+1,self.total_users):
                 ui_pa = self.users[i].pa_id_ra
@@ -332,8 +332,8 @@ class BayesianRecommender(object):
 
         # print self.result[:10]
         # print self.test_data[:10,2]
-        # print self.mae
-        # print self.error
+        print self.mae
+        print self.error
 
 def read_item_features(item_file):
     item_f = np.loadtxt(item_file,delimiter='|',dtype='int8', usecols=range(5,24))
@@ -417,12 +417,12 @@ if __name__ == '__main__':
     files = ['../data/ml-100k/u.item','../data/ml-100k/u1.base','../data/ml-100k/u.info','../data/ml-100k/u1.test','../data/ml-100k/u.user','../data/ml-100k/u.occupation',10]
     re = test(files) 
     print 'finish create model, start inference'
+    re.testing()
     # re.read_data()
     # re.create_demo()
     # print re.user_demo
     # print re.demo[:20]
-    # re.testing(0.3)
-    u = re.inference(1,6)
+    # u = re.inference(1,6)
 
     # test = CrossValidation()
     # result = test.run()
